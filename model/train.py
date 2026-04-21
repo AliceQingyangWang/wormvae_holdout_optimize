@@ -31,6 +31,12 @@ def train(data_loader, network, model_type, constraint, lr_params, savepath):
     optimizer = torch.optim.Adam(network.parameters(),lr = lr_params['lr'])
 
     scheduler = StepLR(optimizer, step_size = lr_params['step_size'], gamma = lr_params['gamma'])
+    # Early stopping (disabled when patience <= 0)
+    es_patience = lr_params.get('early_stopping_patience', 0)
+    es_min_delta = lr_params.get('early_stopping_min_delta', 1e-4)
+    es_best_loss = float('inf')
+    es_counter = 0
+
     loss_list, recon_loss_list, KLD_list = [], [], []
     for epoch in range(lr_params['epochs']):
         iter, loss_sum, recon_loss_sum, KLD_sum  = 0, 0, 0, 0
@@ -110,4 +116,17 @@ def train(data_loader, network, model_type, constraint, lr_params, savepath):
         if (epoch + 1) % lr_params['ckpt_save_freq'] == 0:
             torch.save(network.state_dict(), savepath + f'epoch_{epoch}.pt')
         scheduler.step()
+
+        # Early stopping check
+        if es_patience > 0:
+            if epoch_loss < es_best_loss - es_min_delta:
+                es_best_loss = epoch_loss
+                es_counter = 0
+            else:
+                es_counter += 1
+                if es_counter >= es_patience:
+                    logging.info('Early stopping triggered at epoch %d (patience=%d)', epoch, es_patience)
+                    print(f'Early stopping at epoch {epoch}, best loss {es_best_loss:.6f}')
+                    break
+
     return loss_list, recon_loss_list, KLD_list
