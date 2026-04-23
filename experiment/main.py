@@ -16,6 +16,7 @@ parser.add_argument("--train_worm", default = [1], help="train worm list")
 parser.add_argument("--model_type", default = 'conductance', help="synapse model type")
 parser.add_argument("--constraint", default = 'weight', help="connectome constraint for synapse weight")
 parser.add_argument("--random_init_index", default = 0, help="model random initialize index")
+parser.add_argument("--output_dir", default = '/output', help="Output directory")
 args = parser.parse_args()
 
 exp_name =  f'worm_vae_neuron_held_out_{args.neuron_holdout}_train_worm_{args.train_worm}_{args.model_type}_{args.constraint}_rand_{str(args.random_init_index)}_'
@@ -112,15 +113,33 @@ target, missing_target = data_loader.generate_target_mask(full_target)
 train_dataset = data_loader.TimeSeriesDataloader(data_param_dict = inference_net_params,
                                      data = [stim_features, target, missing_target],
                                      window_size = [int(window_size * upsample_factor), window_size, window_size])
-trainloader = torch.utils.data.DataLoader(train_dataset, batch_size = 1, shuffle = True, drop_last = False)
+class NumpyShuffleSampler(torch.utils.data.Sampler):
+    """Shuffle sampler using numpy to avoid CUDA generator conflict.
+    With torch.set_default_tensor_type('torch.cuda.FloatTensor') (used
+    elsewhere for CUDA tensor placement), torch's default RNG-based
+    DataLoader shuffle errors out — see Phase 0 fix in iter 22's notes.
+    Drop-in replacement: same shuffle semantics, no CUDA generator."""
+    def __init__(self, data_source):
+        self.data_source = data_source
+    def __iter__(self):
+        import numpy as _np
+        indices = _np.random.permutation(len(self.data_source)).tolist()
+        return iter(indices)
+    def __len__(self):
+        return len(self.data_source)
+
+trainloader = torch.utils.data.DataLoader(train_dataset, batch_size = 1, sampler = NumpyShuffleSampler(train_dataset), drop_last = False)
 
 # Model train
+import json, os
+output_dir = getattr(args, 'output_dir', '/output')
 loss_list, recon_loss_list, KLD_list = train(data_loader = trainloader,
                                              network = network,
                                              model_type = args.model_type,
                                              constraint =args.constraint,
                                              lr_params = lr_params,
-                                             savepath = savepath)
+                                             savepath = savepath,
+                                             output_dir = output_dir)
 
 loss_dict = {'loss': loss_list, 'recon_loss': recon_loss_list, 'KLD': KLD_list}
 with open('loss_trajectories/' + exp_name+'_loss.pickle', 'wb') as handle:

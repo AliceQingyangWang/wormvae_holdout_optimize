@@ -1,15 +1,16 @@
 import sys
 from pathlib import Path
 import torch
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 import logging
 import datetime, time
+import json, os
 from model import *
 import torch.nn.functional as F
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
 import pdb
 
-def train(data_loader, network, model_type, constraint, lr_params, savepath):
+def train(data_loader, network, model_type, constraint, lr_params, savepath, output_dir='/output'):
     '''WormVAE training procedure
     Attributes:
         input:
@@ -30,7 +31,12 @@ def train(data_loader, network, model_type, constraint, lr_params, savepath):
     
     optimizer = torch.optim.Adam(network.parameters(),lr = lr_params['lr'])
 
-    scheduler = StepLR(optimizer, step_size = lr_params['step_size'], gamma = lr_params['gamma'])
+    # Scheduler choice: caller can opt into cosine via lr_params['scheduler_type'].
+    # Vanilla / unset → StepLR (the historical default).
+    if lr_params.get('scheduler_type') == 'cosine':
+        scheduler = CosineAnnealingLR(optimizer, T_max=lr_params['epochs'], eta_min=1e-6)
+    else:
+        scheduler = StepLR(optimizer, step_size = lr_params['step_size'], gamma = lr_params['gamma'])
     # Early stopping (disabled when patience <= 0)
     es_patience = lr_params.get('early_stopping_patience', 0)
     es_min_delta = lr_params.get('early_stopping_min_delta', 1e-4)
@@ -128,5 +134,34 @@ def train(data_loader, network, model_type, constraint, lr_params, savepath):
                     logging.info('Early stopping triggered at epoch %d (patience=%d)', epoch, es_patience)
                     print(f'Early stopping at epoch {epoch}, best loss {es_best_loss:.6f}')
                     break
+
+        # Write per-epoch partial metrics so the orchestrator has *something*
+        # to read even if Tier 4 wall-clock timeout kills training mid-run.
+        # Status flips to 'success' after the loop completes below.
+        _metrics = {
+            "status": "partial",
+            "neuron_holdout_corr_mean": None,
+            "training_epochs_completed": len(loss_list),
+            "elbo_mean": float(loss_list[-1]) if loss_list else None,
+            "reconstruction_loss_mean": float(recon_loss_list[-1]) if recon_loss_list else None,
+            "kl_divergence_mean": float(KLD_list[-1]) if KLD_list else None,
+        }
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, 'metrics.json'), 'w') as f:
+            json.dump(_metrics, f, indent=2)
+
+    # Final write with success status — orchestrator's holdout_eval merges
+    # neuron_holdout_corr_mean into this file post-training.
+    _metrics = {
+        "status": "success",
+        "neuron_holdout_corr_mean": None,
+        "training_epochs_completed": len(loss_list),
+        "elbo_mean": float(loss_list[-1]) if loss_list else None,
+        "reconstruction_loss_mean": float(recon_loss_list[-1]) if recon_loss_list else None,
+        "kl_divergence_mean": float(KLD_list[-1]) if KLD_list else None,
+    }
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, 'metrics.json'), 'w') as f:
+        json.dump(_metrics, f, indent=2)
 
     return loss_list, recon_loss_list, KLD_list
