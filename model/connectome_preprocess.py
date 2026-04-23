@@ -137,7 +137,7 @@ class WhiteConnectomeData:
         Return:
             all_activity: tensor (B, N, T)
         '''   
-        all_activity = np.NaN*torch.ones(size = (activity_data.shape[0], len(self.neuron_list), activity_data.shape[2]), device = self.__device)
+        all_activity = float('nan')*torch.ones(size = (activity_data.shape[0], len(self.neuron_list), activity_data.shape[2]), device = self.__device)
         for i in range(activity_data.shape[1]):
             if activity_neuron_list[i] not in holdout_list:
                 mask_neuron_index = self.name_neuron_dict[activity_neuron_list[i]].index # map neural activity to full connectome tensor index
