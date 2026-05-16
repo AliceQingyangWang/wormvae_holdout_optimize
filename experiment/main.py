@@ -53,8 +53,11 @@ lr_params['lr'] = 3e-4
 lr_params['step_size'] = 50
 # EPOCHS_OVERRIDE env var lets the orchestrator's smoke tests cap
 # training at N epochs (e.g. EPOCHS_OVERRIDE=5 for the eval/Tier-4
-# pre-flight smoke). When unset, the production default of 300 stands.
-lr_params['epochs'] = int(os.environ.get("EPOCHS_OVERRIDE", "300"))
+# pre-flight smoke). When unset OR set to empty string (the launcher
+# propagates `EPOCHS_OVERRIDE=${EPOCHS_OVERRIDE:-}` which yields '' to
+# inner processes), the production default of 300 stands.
+_epochs_override = os.environ.get("EPOCHS_OVERRIDE", "").strip()
+lr_params['epochs'] = int(_epochs_override) if _epochs_override else 300
 lr_params['gamma'] = 0.5
 lr_params['grad_clip'] = 1.0
 lr_params['eps'] = 1e-8
