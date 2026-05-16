@@ -150,6 +150,16 @@ def train(data_loader, network, model_type, constraint, lr_params, savepath, out
         with open(os.path.join(output_dir, 'metrics.json'), 'w') as f:
             json.dump(_metrics, f, indent=2)
 
+    # Save a final checkpoint regardless of epoch count. The training loop
+    # above only writes at `ckpt_save_freq` multiples (default 100), so
+    # short smoke runs (EPOCHS_OVERRIDE=5) and early-stopped runs would
+    # otherwise produce no .pt file at all — breaking Test 7 of the
+    # evaluator's acceptance contract (checkpoint_contract_ok) and Test 8
+    # (holdout_smoke_ok, which loads this file). Flat state_dict form
+    # satisfies the contract; the `_final.pt` suffix makes it obvious
+    # this is the end-of-training save.
+    torch.save(network.state_dict(), savepath + 'final.pt')
+
     # Final write with success status — orchestrator's holdout_eval merges
     # neuron_holdout_corr_mean into this file post-training.
     _metrics = {
